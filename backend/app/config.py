@@ -16,7 +16,8 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
-    ML_MODELS_DIR: str = "app/ml_models"
+    # Location where trained models are stored (relative to backend/)
+    ML_MODELS_DIR: str = "ml/models"
 
     class Config:
         env_file = ".env"
