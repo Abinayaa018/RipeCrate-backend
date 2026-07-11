@@ -2,14 +2,16 @@ services:
   - type: web
     name: ripecrate-backend
     env: python
-    plan: starter
+    plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: DATABASE_URL
-        value: "postgresql://<user>:<password>@<host>:<port>/<db>"
+        value: "sqlite:///./ripecrate.db"
       - key: JWT_SECRET_KEY
-        value: "change-this-secret-in-production"
+        generateValue: true
       - key: ENV
         value: "production"
+      - key: CORS_ORIGINS
+        value: '["https://ripe-crate-frontend.vercel.app","https://ripecrate-frontend.vercel.app","http://localhost:5173"]'
     autoDeploy: true

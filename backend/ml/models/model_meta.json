@@ -1,12 +1,116 @@
 {
-  "model": "best_model.joblib",
-  "best": "xgb",
-  "results": {
-    "rf": {
-      "score": -16.64205460178185
-    },
-    "xgb": {
-      "score": -16.143328237339926
-    }
+  "numeric_features": [
+    "storage_temp",
+    "temp_deviation",
+    "spoilage_sensitivity",
+    "temp_abuse_events",
+    "distribution_hours",
+    "handling_score",
+    "packaging_score",
+    "shelf_life_days",
+    "days_remaining_at_purchase",
+    "daily_demand",
+    "demand_variability",
+    "supplier_score",
+    "day_of_week",
+    "is_weekend",
+    "month"
+  ],
+  "cat_features": [
+    "category",
+    "region",
+    "quality_grade"
+  ],
+  "spoilage_classifier": {
+    "path": "spoilage_classifier.joblib",
+    "roc_auc": 0.5714,
+    "feature_importance": [
+      {
+        "feature": "distribution_hours",
+        "importance": 0.14669
+      },
+      {
+        "feature": "daily_demand",
+        "importance": 0.10142
+      },
+      {
+        "feature": "storage_temp",
+        "importance": 0.09893
+      },
+      {
+        "feature": "temp_deviation",
+        "importance": 0.08929
+      },
+      {
+        "feature": "days_remaining_at_purchase",
+        "importance": 0.07993
+      },
+      {
+        "feature": "packaging_score",
+        "importance": 0.07448
+      },
+      {
+        "feature": "demand_variability",
+        "importance": 0.07218
+      },
+      {
+        "feature": "shelf_life_days",
+        "importance": 0.06146
+      },
+      {
+        "feature": "month",
+        "importance": 0.04445
+      },
+      {
+        "feature": "handling_score",
+        "importance": 0.03952
+      }
+    ]
+  },
+  "shelf_life_regressor": {
+    "path": "shelf_life_regressor.joblib",
+    "r2_score": 0.9999,
+    "feature_importance": [
+      {
+        "feature": "days_remaining_at_purchase",
+        "importance": 0.99999
+      },
+      {
+        "feature": "shelf_life_days",
+        "importance": 1e-05
+      },
+      {
+        "feature": "distribution_hours",
+        "importance": 0.0
+      },
+      {
+        "feature": "storage_temp",
+        "importance": 0.0
+      },
+      {
+        "feature": "temp_deviation",
+        "importance": 0.0
+      },
+      {
+        "feature": "demand_variability",
+        "importance": 0.0
+      },
+      {
+        "feature": "daily_demand",
+        "importance": 0.0
+      },
+      {
+        "feature": "month",
+        "importance": 0.0
+      },
+      {
+        "feature": "day_of_week",
+        "importance": 0.0
+      },
+      {
+        "feature": "supplier_score",
+        "importance": 0.0
+      }
+    ]
   }
 }

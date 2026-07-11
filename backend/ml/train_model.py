@@ -1,184 +1,223 @@
-"""Model training script for RipeCrate.
-
-This script detects a suitable target column from the dataset and trains
-either a classification or regression model (Random Forest and XGBoost if
-available). The best model is serialized to `ml/models/best_model.joblib`.
 """
+RipeCrate ML Training Pipeline
+Trains two models from perishable_goods_management.csv:
+  1. Spoilage classifier  -> was_spoiled (binary)
+  2. Shelf-life regressor -> days_until_expiry (continuous)
 
-from pathlib import Path
+Both are saved as joblib pipelines. Feature importance is exported to JSON.
+"""
 import json
 import sys
-from typing import Optional
+from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+from sklearn.metrics import (
+    accuracy_score, roc_auc_score,
+    mean_absolute_error, r2_score,
+)
+from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import accuracy_score, mean_squared_error
 
 try:
-    import xgboost as xgb  # optional
-    XGB_AVAILABLE = True
-except Exception:
-    XGB_AVAILABLE = False
+    from xgboost import XGBClassifier, XGBRegressor
+    XGB_OK = True
+except ImportError:
+    XGB_OK = False
 
-
-MODEL_DIR = Path(__file__).resolve().parent / "models"
+ROOT = Path(__file__).resolve().parent
+MODEL_DIR = ROOT / "models"
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
-DEFAULT_DATA = Path(__file__).resolve().parent / "datasets" / "raw" / "perishable_goods_management.csv"
-MAX_ROWS = 20000
+DATA_PATH = ROOT / "datasets" / "raw" / "perishable_goods_management.csv"
+
+# ── Feature sets ──────────────────────────────────────────────────────────────
+NUMERIC_FEATURES = [
+    "storage_temp", "temp_deviation", "spoilage_sensitivity",
+    "temp_abuse_events", "distribution_hours", "handling_score",
+    "packaging_score", "shelf_life_days", "days_remaining_at_purchase",
+    "daily_demand", "demand_variability", "supplier_score",
+    "day_of_week", "is_weekend", "month",
+]
+CAT_FEATURES = ["category", "region", "quality_grade"]
+
+SPOILAGE_TARGET = "was_spoiled"
+SHELF_TARGET = "days_until_expiry"
 
 
-def detect_target(df: pd.DataFrame) -> Optional[str]:
-    candidates = [
-        "target",
-        "label",
-        "is_spoiled",
-        "spoiled",
-        "spoiled_flag",
-        "quality",
-        "shelf_life",
-        "days_to_spoil",
-        "days_to_expire",
-        "days_until_spoil",
-        "remaining_days",
+def load_and_clean(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    print(f"Loaded {len(df):,} rows × {df.shape[1]} cols")
+
+    # Drop leakage columns (post-sale outcomes)
+    leakage = [
+        "record_id", "product_id", "store_id", "supplier_id",
+        "transaction_date", "expiration_date",
+        "units_sold", "units_wasted", "waste_pct",
+        "revenue", "waste_cost", "profit", "profit_margin_pct",
+        "markdown_applied", "discount_pct", "selling_price",
+        "base_price", "cost_price", "initial_quantity",
+        "spoilage_risk",  # direct proxy of target
     ]
-    cols = {c.lower(): c for c in df.columns}
-    for cand in candidates:
-        if cand in cols:
-            return cols[cand]
-    # fallback: try to find a numeric column with a sensible name
-    for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]) and "id" not in col.lower() and "count" not in col.lower():
-            return col
-    return None
+    df.drop(columns=[c for c in leakage if c in df.columns], inplace=True)
+
+    # Fill missing
+    for c in df.select_dtypes(include=[np.number]).columns:
+        df[c] = df[c].fillna(df[c].median())
+    for c in df.select_dtypes(include=["object", "category"]).columns:
+        df[c] = df[c].fillna("unknown")
+
+    return df
 
 
-def build_preprocessor(df: pd.DataFrame):
-    numeric_cols = list(df.select_dtypes(include=[np.number]).columns)
-    cat_cols = list(df.select_dtypes(include=[object, "category"]).columns)
-
-    # Remove target if present (caller must ensure target removed)
-    transformers = []
-    if numeric_cols:
-        transformers.append(("num", StandardScaler(), numeric_cols))
-    if cat_cols:
-        # Use `sparse_output=False` for recent scikit-learn; falls back in older releases
-        try:
-            transformers.append(("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols))
-        except TypeError:
-            transformers.append(("cat", OneHotEncoder(handle_unknown="ignore", sparse=False), cat_cols))
-
-    preprocessor = ColumnTransformer(transformers=transformers, remainder="drop")
-    return preprocessor
+def build_preprocessor(num_cols, cat_cols):
+    return ColumnTransformer([
+        ("num", StandardScaler(), num_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols),
+    ])
 
 
-def train_model(data_path: Path = DEFAULT_DATA, out_dir: Path = MODEL_DIR) -> dict:
-    df = pd.read_csv(data_path)
-    print(f"Loaded data: {df.shape[0]} rows, {df.shape[1]} columns")
+def train_classifier(X_train, X_test, y_train, y_test, num_cols, cat_cols):
+    pre = build_preprocessor(num_cols, cat_cols)
 
-    target = detect_target(df)
-    if not target:
-        raise RuntimeError(f"Could not detect a target column. Columns: {list(df.columns)}")
+    models = {
+        "gb": GradientBoostingClassifier(
+            n_estimators=300, max_depth=5, learning_rate=0.08,
+            subsample=0.8, min_samples_leaf=20, random_state=42,
+        ),
+    }
+    if XGB_OK:
+        models["xgb"] = XGBClassifier(
+            n_estimators=400, max_depth=6, learning_rate=0.07,
+            subsample=0.8, colsample_bytree=0.8,
+            use_label_encoder=False, eval_metric="logloss",
+            random_state=42, n_jobs=-1,
+        )
 
-    print(f"Detected target column: {target}")
+    best_pipe, best_auc, best_name = None, 0.0, ""
+    for name, clf in models.items():
+        pipe = Pipeline([("pre", pre), ("clf", clf)])
+        pipe.fit(X_train, y_train)
+        proba = pipe.predict_proba(X_test)[:, 1]
+        auc = roc_auc_score(y_test, proba)
+        acc = accuracy_score(y_test, pipe.predict(X_test))
+        print(f"  [{name}] AUC={auc:.4f}  ACC={acc:.4f}")
+        if auc > best_auc:
+            best_auc, best_pipe, best_name = auc, pipe, name
 
-    # Basic cleaning
-    df = df.copy()
-    # Downsample large datasets to avoid memory exhaustion during local training
-    if len(df) > MAX_ROWS:
-        print(f"Dataset has {len(df)} rows; sampling {MAX_ROWS} rows for local training")
-        df = df.sample(n=MAX_ROWS, random_state=42)
-    # Drop obvious ID columns
-    drop_cols = [c for c in df.columns if c.lower().endswith("id") and c.lower() != target.lower()]
-    if drop_cols:
-        df.drop(columns=drop_cols, inplace=True)
+    print(f"  Best classifier: {best_name}  AUC={best_auc:.4f}")
+    return best_pipe, best_auc
 
-    y = df[target]
-    X = df.drop(columns=[target])
 
-    # Fill missing numeric values with median; for categoricals fill with 'missing'
-    for c in X.select_dtypes(include=[np.number]).columns:
-        if X[c].isna().any():
-            X[c] = X[c].fillna(X[c].median())
-    for c in X.select_dtypes(include=[object, "category"]).columns:
-        if X[c].isna().any():
-            X[c] = X[c].fillna("__missing__")
+def train_regressor(X_train, X_test, y_train, y_test, num_cols, cat_cols):
+    pre = build_preprocessor(num_cols, cat_cols)
 
-    n_unique = y.nunique()
-    # Treat as classification only for low-cardinality targets (<=20 classes) or booleans
-    is_classification = pd.api.types.is_bool_dtype(y) or (
-        n_unique <= 20 and (pd.api.types.is_integer_dtype(y) or pd.api.types.is_object_dtype(y))
-    )
-    print(f"Target unique values: {n_unique}; treating as {'classification' if is_classification else 'regression'}")
-    if pd.api.types.is_object_dtype(y) and is_classification:
-        # try to cast to int if possible
-        try:
-            y = y.astype(int)
-        except Exception:
-            pass
+    models = {
+        "gb": GradientBoostingRegressor(
+            n_estimators=300, max_depth=5, learning_rate=0.08,
+            subsample=0.8, min_samples_leaf=20, random_state=42,
+        ),
+    }
+    if XGB_OK:
+        models["xgb"] = XGBRegressor(
+            n_estimators=400, max_depth=6, learning_rate=0.07,
+            subsample=0.8, colsample_bytree=0.8,
+            random_state=42, n_jobs=-1,
+        )
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    preprocessor = build_preprocessor(X_train)
-
-    candidates = []
-
-    # Use smaller, constrained models to reduce memory and CPU usage for local runs
-    if is_classification:
-        candidates.append(("rf", RandomForestClassifier(n_estimators=50, max_depth=12, random_state=42)))
-        if XGB_AVAILABLE:
-            candidates.append(("xgb", xgb.XGBClassifier(n_estimators=50, max_depth=8, use_label_encoder=False, eval_metric="logloss")))
-    else:
-        candidates.append(("rf", RandomForestRegressor(n_estimators=50, max_depth=12, random_state=42)))
-        if XGB_AVAILABLE:
-            candidates.append(("xgb", xgb.XGBRegressor(n_estimators=50, max_depth=8)))
-
-    results = {}
-    best_name = None
-    best_score = None
-    best_model = None
-
-    for name, model in candidates:
-        pipe = Pipeline([("pre", preprocessor), ("m", model)])
-        print(f"Training {name}...")
-        try:
-            pipe.fit(X_train, y_train)
-        except MemoryError:
-            print(f"MemoryError while training {name}; skipping this model")
-            continue
+    best_pipe, best_r2, best_name = None, -999.0, ""
+    for name, reg in models.items():
+        pipe = Pipeline([("pre", pre), ("reg", reg)])
+        pipe.fit(X_train, y_train)
         preds = pipe.predict(X_test)
-        if is_classification:
-            score = accuracy_score(y_test, preds)
-            print(f"{name} accuracy: {score:.4f}")
-        else:
-            rmse = mean_squared_error(y_test, preds, squared=False)
-            score = -rmse  # higher is better
-            print(f"{name} RMSE: {rmse:.4f}")
+        mae = mean_absolute_error(y_test, preds)
+        r2 = r2_score(y_test, preds)
+        print(f"  [{name}] MAE={mae:.3f}  R²={r2:.4f}")
+        if r2 > best_r2:
+            best_r2, best_pipe, best_name = r2, pipe, name
 
-        results[name] = {"score": float(score)}
-        if best_score is None or score > best_score:
-            best_score = score
-            best_name = name
-            best_model = pipe
+    print(f"  Best regressor: {best_name}  R²={best_r2:.4f}")
+    return best_pipe, best_r2
 
-    out_model_path = out_dir / "best_model.joblib"
-    print(f"Saving best model ({best_name}) to {out_model_path}")
-    joblib.dump(best_model, out_model_path)
-    meta = {"model": str(out_model_path.name), "best": best_name, "results": results}
-    with open(out_dir / "model_meta.json", "w", encoding="utf8") as f:
+
+def extract_feature_importance(pipe, num_cols, cat_cols, top_n=10):
+    try:
+        pre = pipe.named_steps["pre"]
+        estimator = pipe.named_steps.get("clf") or pipe.named_steps.get("reg")
+        importances = estimator.feature_importances_
+
+        # Reconstruct feature names after OHE
+        ohe = pre.named_transformers_["cat"]
+        cat_names = list(ohe.get_feature_names_out(cat_cols))
+        all_names = list(num_cols) + cat_names
+
+        pairs = sorted(zip(all_names, importances), key=lambda x: x[1], reverse=True)
+        return [{"feature": n, "importance": round(float(v), 5)} for n, v in pairs[:top_n]]
+    except Exception:
+        return []
+
+
+def main():
+    df = load_and_clean(DATA_PATH)
+
+    available_num = [c for c in NUMERIC_FEATURES if c in df.columns]
+    available_cat = [c for c in CAT_FEATURES if c in df.columns]
+    features = available_num + available_cat
+
+    print(f"\nFeatures used ({len(features)}): {features}")
+
+    X = df[features]
+    y_cls = df[SPOILAGE_TARGET].astype(int)
+    y_reg = df[SHELF_TARGET].clip(lower=0)
+
+    X_tr, X_te, yc_tr, yc_te, yr_tr, yr_te = train_test_split(
+        X, y_cls, y_reg, test_size=0.2, random_state=42, stratify=y_cls
+    )
+
+    print("\n-- Training spoilage classifier --")
+    clf_pipe, clf_auc = train_classifier(X_tr, X_te, yc_tr, yc_te, available_num, available_cat)
+
+    print("\n-- Training shelf-life regressor --")
+    reg_pipe, reg_r2 = train_regressor(X_tr, X_te, yr_tr, yr_te, available_num, available_cat)
+
+    # Save models
+    clf_path = MODEL_DIR / "spoilage_classifier.joblib"
+    reg_path = MODEL_DIR / "shelf_life_regressor.joblib"
+    joblib.dump(clf_pipe, clf_path)
+    joblib.dump(reg_pipe, reg_path)
+    print(f"\nSaved: {clf_path}")
+    print(f"Saved: {reg_path}")
+
+    # Feature importance
+    clf_importance = extract_feature_importance(clf_pipe, available_num, available_cat)
+    reg_importance = extract_feature_importance(reg_pipe, available_num, available_cat)
+
+    meta = {
+        "numeric_features": available_num,
+        "cat_features": available_cat,
+        "spoilage_classifier": {
+            "path": str(clf_path.name),
+            "roc_auc": round(clf_auc, 4),
+            "feature_importance": clf_importance,
+        },
+        "shelf_life_regressor": {
+            "path": str(reg_path.name),
+            "r2_score": round(reg_r2, 4),
+            "feature_importance": reg_importance,
+        },
+    }
+
+    meta_path = MODEL_DIR / "model_meta.json"
+    with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
-
+    print(f"Saved: {meta_path}")
+    print("\nTraining complete")
+    print(json.dumps({"auc": round(clf_auc, 4), "r2": round(reg_r2, 4)}, indent=2))
     return meta
 
 
 if __name__ == "__main__":
-    data = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DATA
-    out = Path(sys.argv[2]) if len(sys.argv) > 2 else MODEL_DIR
-    meta = train_model(data, out)
-    print("Training complete. Summary:")
-    print(json.dumps(meta, indent=2))
+    main()

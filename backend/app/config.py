@@ -1,3 +1,4 @@
+import json
 from pydantic_settings import BaseSettings
 
 
@@ -5,22 +6,29 @@ class Settings(BaseSettings):
     APP_NAME: str = "RipeCrate API"
     ENV: str = "development"
 
-    # Use SQLite by default for zero-config local dev.
-    # For production, set DATABASE_URL to a Postgres DSN, e.g.:
-    #   postgresql+psycopg2://ripecrate:ripecrate@postgres:5432/ripecrate
     DATABASE_URL: str = "sqlite:///./ripecrate.db"
 
     JWT_SECRET_KEY: str = "change-this-secret-in-production"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12  # 12 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
 
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # Accepts a JSON array string from env or a Python list
+    CORS_ORIGINS: str = '["http://localhost:5173","http://localhost:3000"]'
 
-    # Location where trained models are stored (relative to backend/)
     ML_MODELS_DIR: str = "ml/models"
 
     class Config:
         env_file = ".env"
+
+    def get_cors_origins(self) -> list[str]:
+        try:
+            origins = json.loads(self.CORS_ORIGINS)
+            if isinstance(origins, list):
+                return origins
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Single string fallback
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
 settings = Settings()

@@ -3,23 +3,34 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.env
 venv/
 env/
 .venv/
+
+# Environment variables — never commit secrets
+.env
+.env.*
+
+# Database files
 *.sqlite3
 *.db
 
-# IDE files
+# ML model binaries — large files, regenerated on deploy
+ml/models/*.joblib
+ml/models/*.pkl
+# Keep .gitkeep and model_meta.json (small metadata)
+
+# Datasets — too large for git
+ml/datasets/raw/*.csv
+ml/datasets/processed/
+
+# IDE
 .vscode/
 .idea/
 
-# Frontend folder (handled in separate repo)
-frontend/
-
-# Node artifacts
-frontend/node_modules/
-frontend/dist/
-
-# Local environment
+# Logs
 *.log
+
+# OS
+.DS_Store
+Thumbs.db
