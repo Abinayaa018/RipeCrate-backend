@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { auth } from './services/api'
 import DashboardPage from './pages/DashboardPage'
 import PredictionPage from './pages/PredictionPage'
 import InventoryPage from './pages/InventoryPage'
@@ -13,8 +14,10 @@ import Sidebar from './components/Sidebar'
 import Topbar from './components/Topbar'
 import CommandPalette from './components/CommandPalette'
 import CommandCenterPage from './pages/CommandCenterPage'
+import Chatbot from './components/Chatbot'
 
 function AppShell() {
+  if (!auth.isLoggedIn()) return <Navigate to="/auth" replace />
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-text">
       <div className="cold-grid" />
@@ -44,6 +47,7 @@ function AppShell() {
         </div>
       </div>
       <CommandPalette />
+      <Chatbot />
     </div>
   )
 }

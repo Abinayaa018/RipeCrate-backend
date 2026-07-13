@@ -19,6 +19,7 @@ import {
   Cross2Icon,
   ExitIcon,
 } from '@radix-ui/react-icons'
+import AddBatchModal from './AddBatchModal'
 
 const routeLabels: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -117,6 +118,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
 export default function Topbar() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [addBatchOpen, setAddBatchOpen] = useState(false)
 
   return (
     <>
@@ -175,7 +177,7 @@ export default function Topbar() {
         </div>
 
         {/* Quick Actions */}
-        <button className="ripple mr-2 hidden h-9 items-center gap-2 rounded-[18px] border border-accent/30 bg-accent/10 px-3 text-xs font-semibold text-accent transition hover:bg-accent/20 xl:flex">
+        <button onClick={() => setAddBatchOpen(true)} className="ripple mr-2 hidden h-9 items-center gap-2 rounded-[18px] border border-accent/30 bg-accent/10 px-3 text-xs font-semibold text-accent transition hover:bg-accent/20 xl:flex">
           <PlusIcon className="h-4 w-4" />
           Add Batch
         </button>
@@ -222,6 +224,7 @@ export default function Topbar() {
       </header>
 
       <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <AddBatchModal open={addBatchOpen} onClose={() => setAddBatchOpen(false)} />
     </>
   )
 }

@@ -76,11 +76,17 @@ export function SkeletonLoader() {
   )
 }
 
-export function SearchBar({ placeholder = 'Search' }: { placeholder?: string }) {
+export function SearchBar({ placeholder = 'Search', value, onChange }: { placeholder?: string; value?: string; onChange?: (v: string) => void }) {
   return (
     <label className="flex items-center gap-3 rounded-[24px] border border-white/10 bg-[#071224]/74 px-4 py-3">
       <span className="text-accent">⌕</span>
-      <input aria-label={placeholder} placeholder={placeholder} className="w-full border-none bg-transparent text-sm text-text outline-none placeholder:text-muted" />
+      <input
+        aria-label={placeholder}
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange?.(e.target.value)}
+        className="w-full border-none bg-transparent text-sm text-text outline-none placeholder:text-muted"
+      />
     </label>
   )
 }

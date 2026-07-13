@@ -18,6 +18,7 @@ import {
   timelineEvents,
   warehouseNodes,
 } from '../data/dashboard'
+import { api } from '../services/api'
 
 const statusClass = {
   green: 'bg-accent2 text-accent2',
@@ -37,6 +38,34 @@ const chartTooltip = {
 export default function CommandCenterPage() {
   const [selectedWarehouse, setSelectedWarehouse] = useState(warehouseNodes[0])
   const [liveTick, setLiveTick] = useState(0)
+  const [briefing, setBriefing] = useState('')
+  const [briefingLoading, setBriefingLoading] = useState(false)
+  const [exportMsg, setExportMsg] = useState('')
+
+  async function generateBriefing() {
+    setBriefingLoading(true)
+    setBriefing('')
+    try {
+      const res = await api.ask('Give me a full operational briefing: critical batches, expiring produce, warehouse wastage, and top recommendations.')
+      setBriefing(res.answer)
+    } catch {
+      setBriefing('Could not generate briefing — make sure you are logged in.')
+    } finally {
+      setBriefingLoading(false)
+    }
+  }
+
+  async function exportSnapshot() {
+    try {
+      const batches = await api.batches()
+      api.downloadCsv(batches)
+      setExportMsg('Snapshot exported!')
+      setTimeout(() => setExportMsg(''), 2000)
+    } catch {
+      setExportMsg('Export failed — log in first.')
+      setTimeout(() => setExportMsg(''), 2000)
+    }
+  }
 
   useEffect(() => {
     const t = window.setInterval(() => setLiveTick(x => x + 1), 4000)
@@ -70,14 +99,14 @@ export default function CommandCenterPage() {
             >
               Refresh Telemetry
             </button>
-            <button className="ripple rounded-[18px] border border-accent/30 bg-accent/10 px-4 py-2.5 text-sm font-semibold text-accent transition hover:bg-accent/20">
-              Generate AI Briefing
+            <button onClick={generateBriefing} disabled={briefingLoading} className="ripple rounded-[18px] border border-accent/30 bg-accent/10 px-4 py-2.5 text-sm font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-60">
+              {briefingLoading ? 'Generating…' : 'Generate AI Briefing'}
             </button>
-            <button className="ripple rounded-[18px] border border-white/10 bg-[#0b1a31] px-4 py-2.5 text-sm font-semibold text-text transition hover:border-accent/30">
-              Export Snapshot
+            <button onClick={exportSnapshot} className="ripple rounded-[18px] border border-white/10 bg-[#0b1a31] px-4 py-2.5 text-sm font-semibold text-text transition hover:border-accent/30">
+              {exportMsg || 'Export Snapshot'}
             </button>
-            <button className="ripple rounded-[18px] border border-danger/30 bg-danger/10 px-4 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger/20">
-              Emergency
+            <button onClick={() => api.evaluateAlerts().catch(() => {})} className="ripple rounded-[18px] border border-danger/30 bg-danger/10 px-4 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger/20">
+              Evaluate Alerts
             </button>
           </div>
         </div>
@@ -95,9 +124,14 @@ export default function CommandCenterPage() {
             <span>2 escalations pending</span>
           </div>
         </div>
-      </div>
 
-      {/* Live Warehouse Map */}
+        {briefing && (
+          <div className="mt-4 rounded-[18px] border border-accent/20 bg-accent/5 px-5 py-4">
+            <p className="text-[10px] uppercase tracking-wider text-accent">AI Briefing</p>
+            <p className="mt-2 text-sm leading-7 text-text">{briefing}</p>
+          </div>
+        )}
+      </div>
       <div className="panel rounded-[28px] p-5">
         <div className="flex items-center justify-between gap-4">
           <p className="text-xs uppercase tracking-[0.36em] text-muted">Live Warehouse Map</p>

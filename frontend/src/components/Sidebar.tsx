@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChartIcon,
   BellIcon,
@@ -15,6 +15,7 @@ import {
   RocketIcon,
   StarIcon,
 } from '@radix-ui/react-icons'
+import { api } from '../services/api'
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
@@ -30,7 +31,13 @@ const navItems = [
 
 export default function Sidebar() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+
+  function logout() {
+    api.logout()
+    navigate('/auth')
+  }
 
   return (
     <aside
@@ -90,6 +97,7 @@ export default function Sidebar() {
       {/* Logout */}
       <div className="border-t border-white/10 px-3 py-3">
         <button
+          onClick={logout}
           className={`group flex w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-sm font-medium text-muted transition hover:bg-danger/10 hover:text-danger ${
             collapsed ? 'justify-center' : ''
           }`}
