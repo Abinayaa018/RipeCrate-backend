@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
 
     # Accepts a JSON array string from env or a Python list
-    CORS_ORIGINS: str = '["http://localhost:5173","http://localhost:3000"]'
+    CORS_ORIGINS: str = '["http://localhost:5173","http://localhost:3000","https://ripe-crate.vercel.app","https://ripe-crate-frontend.vercel.app","https://ripecrate-frontend.vercel.app"]'
 
     ML_MODELS_DIR: str = "ml/models"
 
