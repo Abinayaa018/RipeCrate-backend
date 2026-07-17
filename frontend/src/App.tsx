@@ -17,9 +17,11 @@ import CommandCenterPage from './pages/CommandCenterPage'
 import Chatbot from './components/Chatbot'
 
 function AppShell() {
-  if (!auth.isLoggedIn()) return <Navigate to="/auth" replace />
+  // Frontend gate (best-effort): we still allow /auth route separately.
+  // If token is stale, pages may fail; the Auth page can re-auth.
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-text">
+
       <div className="cold-grid" />
       <div className="route-lines" />
       <div className="noise" />
