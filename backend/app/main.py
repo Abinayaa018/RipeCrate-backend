@@ -3,6 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import Base, engine
+
+# Render/hosting can override env vars unexpectedly.
+# We defensively ensure known production frontend origins are always allowed.
+KNOWN_FRONTEND_ORIGINS = {
+    "https://ripe-crate.vercel.app",
+    "https://ripe-crate-frontend.vercel.app",
+    "https://ripecrate-frontend.vercel.app",
+}
+
 from app import models  # noqa: F401  (ensures models are registered on Base.metadata)
 from app.routers import auth, inventory, prediction, dashboard, analytics, alerts, assistant, reports
 
@@ -17,11 +26,16 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.get_cors_origins(),
+    allow_origins=[
+        *settings.get_cors_origins(),
+        *sorted(KNOWN_FRONTEND_ORIGINS),
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
 
 
 @app.on_event("startup")
