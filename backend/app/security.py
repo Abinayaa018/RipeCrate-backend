@@ -9,7 +9,10 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    # passlib[bcrypt] ultimately uses bcrypt which only supports 72 bytes.
+    # Ensure we never crash during registration/login by truncating safely.
+    return pwd_context.hash(password[:72])
+
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
